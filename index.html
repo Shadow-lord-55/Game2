@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz-spillet: Matte, Norsk og Naturfag</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef2ff; --ink:#1e1b4b; --card:#ffffff; --line:#c7d2fe;
+  --matte:#2563eb; --norsk:#e11d48; --natur:#16a34a;
+  --tip:#fbbf24; --ok:#bbf7d0; --bad:#fecaca;
+  color-scheme: light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:"Nunito",system-ui,"Segoe UI",Arial,sans-serif;
+  min-height:100vh;display:flex;justify-content:center;padding:16px;font-size:18px}
+main{width:100%;max-width:820px}
+.card{background:var(--card);border:3px solid var(--line);border-radius:20px;padding:24px}
+h1{font-size:clamp(2rem,6vw,3rem);margin:0 0 12px;font-weight:900}
+p{line-height:1.5;margin:8px 0}
+button{font:inherit;cursor:pointer;border:3px solid var(--ink);border-radius:14px;background:#fff;color:var(--ink);padding:12px 16px}
+button:focus-visible{outline:4px solid var(--tip);outline-offset:2px}
+.big{background:var(--natur);color:#fff;font-weight:900;font-size:1.4rem;padding:14px 32px;margin-top:16px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+#timer{font-size:1.8rem;font-weight:900;font-variant-numeric:tabular-nums}
+#timer.low{color:var(--norsk)}
+.bar{height:12px;background:var(--line);border-radius:6px;overflow:hidden;margin-bottom:16px}
+#fill{height:100%;width:0;background:var(--matte);transition:width .3s}
+#subject{display:inline-block;color:#fff;font-weight:900;border-radius:10px;padding:4px 14px}
+#question{font-size:clamp(1.3rem,4.5vw,1.8rem);font-weight:700;margin:16px 0 20px;line-height:1.35}
+#options{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:560px){#options{grid-template-columns:1fr}}
+#options button{font-size:1.2rem;font-weight:700;padding:16px;text-align:left}
+#options button:hover:not(:disabled){background:#e0e7ff}
+#options button.right{background:var(--ok)}
+#options button.wrong{background:var(--bad);text-decoration:line-through}
+#feedback{min-height:1.6em;font-weight:900;margin:14px 0 4px}
+#tipbtn{background:var(--tip);font-weight:700}
+#tiptext{background:#fffbeb;border:3px dashed var(--tip);border-radius:14px;padding:12px 16px;margin-top:12px}
+.stats{font-size:1.3rem;line-height:1.9}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+
+<section id="start" class="card">
+  <h1>Quiz-spillet</h1>
+  <p>Svar på spørsmål i matte, norsk og naturfag. Du har 1 time.</p>
+  <p>Klikk på riktig svar for å gå videre. Svarer du feil, kan du prøve igjen.</p>
+  <p>I matte kan du få et tips. Det koster 1 minutt av tiden din.</p>
+  <button class="big" id="startbtn">Start spillet</button>
+</section>
+
+<section id="game" class="card" hidden>
+  <div class="top">
+    <span id="progress"></span>
+    <span id="timer" role="timer" aria-live="off"></span>
+  </div>
+  <div class="bar" aria-hidden="true"><div id="fill"></div></div>
+  <span id="subject"></span>
+  <div id="question"></div>
+  <div id="options"></div>
+  <div id="feedback" role="status"></div>
+  <button id="tipbtn">Få et tips (−1 minutt)</button>
+  <div id="tiptext" hidden></div>
+</section>
+
+<section id="end" class="card" hidden>
+  <h1 id="endtitle"></h1>
+  <div class="stats" id="endstats"></div>
+  <button class="big" id="again" style="background:var(--matte)">Spill igjen</button>
+</section>
+
+</main>
+
+<script>
+// ---------- SETTINGS ----------
+const TOTAL_SECONDS = 60 * 60;  // 1 hour
+const TIP_PENALTY = 60;         // a tip costs 1 minute
+
+// [subject, question, [4 options], index of correct option, tip or null]
+const QUESTIONS = [
+  ["Matte","Hva er 8 × 7?",["54","56","63","49"],1,"Du kan dele opp: 8 × 7 = 8 × 5 + 8 × 2. Regn ut hver del, og legg sammen."],
+  ["Matte","Hva er 144 ÷ 12?",["10","11","12","14"],2,"Tenk motsatt: hvilket tall ganget med 12 gir 144? Prøv deg frem med 10 × 12 først."],
+  ["Matte","Hva er 3/4 av 20?",["12","15","16","5"],1,"Finn først hva 1/4 av 20 er (del på 4). Ta så det tallet 3 ganger."],
+  ["Matte","Et rektangel er 9 cm langt og 4 cm bredt. Hva er arealet?",["13 cm²","26 cm²","36 cm²","40 cm²"],2,"Areal av rektangel = lengde × bredde. Pass på at du ikke regner omkretsen."],
+  ["Matte","Hva er 0,5 + 0,25?",["0,30","0,75","0,70","1,25"],1,"Skriv 0,5 som 0,50. Da kan du legge sammen som vanlige tall: 50 + 25 hundredeler."],
+  ["Matte","Hva er 1000 − 457?",["543","553","643","447"],0,"Regn i trinn: 1000 − 400, så − 50, så − 7. Eller tell opp fra 457 til 1000."],
+  ["Matte","Hva er omkretsen til et kvadrat med side 6 cm?",["12 cm","24 cm","36 cm","18 cm"],1,"Omkrets er summen av alle sidene. Hvor mange like sider har et kvadrat?"],
+  ["Matte","Hvilken brøk er lik 1/2?",["2/3","3/6","2/5","1/4"],1,"Hvis telleren er halvparten av nevneren, er brøken lik 1/2. Sjekk hvert alternativ."],
+  ["Matte","Ola har 250 kr og kjøper noe til 175 kr. Hvor mye har han igjen?",["65 kr","75 kr","85 kr","125 kr"],1,"Dette er en minus-oppgave. Prøv: 175 + hvor mye = 250? Tell opp til 200 først."],
+  ["Matte","Hva er 15 % av 200?",["15","20","30","40"],2,"Finn først 10 % (del på 10). Så er 5 % halvparten av det. Legg sammen."],
+  ["Norsk","Hvilket ord er et substantiv?",["løpe","stor","bord","raskt"],2,null],
+  ["Norsk","Hvilket ord er et verb?",["hund","synge","grønn","under"],1,null],
+  ["Norsk","Hva er flertall av «bok»?",["boker","bøker","boks","bøk"],1,null],
+  ["Norsk","Hvilket ord er et adjektiv?",["vakker","sykkel","spise","i"],0,null],
+  ["Norsk","Hvilken setning er riktig skrevet?",["jeg liker is.","Jeg liker is.","jeg Liker Is","Jeg liker is"],1,null],
+  ["Norsk","Hva er det motsatte av «varm»?",["lun","kald","het","myk"],1,null],
+  ["Norsk","Hvilket ord er skrevet riktig?",["hvorfor","forhvor","hvofor","hvorfør"],0,null],
+  ["Norsk","Hva er preteritum (fortid) av «å gå»?",["gikk","gådde","gått","går"],0,null],
+  ["Norsk","Hvilket tegn setter vi på slutten av et spørsmål?",[".","!","?",","],2,null],
+  ["Norsk","Hvilket ord rimer på «hus»?",["bil","mus","tre","bok"],1,null],
+  ["Naturfag","Hvilken planet er nærmest sola?",["Venus","Jorden","Merkur","Mars"],2,null],
+  ["Naturfag","Hva trenger planter for å lage mat (fotosyntese)?",["Sollys","Bare mørke","Sukker","Salt"],0,null],
+  ["Naturfag","Hvilken gass puster vi inn for å leve?",["Karbondioksid","Nitrogen","Oksygen","Helium"],2,null],
+  ["Naturfag","Ved hvilken temperatur fryser vann til is?",["0 °C","10 °C","100 °C","−10 °C"],0,null],
+  ["Naturfag","Hvilket dyr er et pattedyr?",["Hai","Frosk","Hval","Ørret"],2,null],
+  ["Naturfag","Hva kalles det når vann blir til damp?",["Kondensering","Fordamping","Frysing","Smelting"],1,null],
+  ["Naturfag","Hvilken del av planten suger opp vann fra jorda?",["Blad","Blomst","Rot","Frukt"],2,null],
+  ["Naturfag","Hvor mange ben har en edderkopp?",["6","8","10","4"],1,null],
+  ["Naturfag","Hva kalles lagene vi finner fossiler og bergarter i?",["Jordlag","Skyer","Hav","Atmosfære"],0,null],
+  ["Naturfag","Hva lager lyd når det vibrerer?",["Ingenting","Et trommeskinn","Et speil","Et vindu uten luft"],1,null]
+];
+const COLORS = {Matte:"var(--matte)", Norsk:"var(--norsk)", Naturfag:"var(--natur)"};
+
+// ---------- STATE ----------
+let qs, index, score, mistakes, tips, timeLeft, timerId, locked;
+const $ = id => document.getElementById(id);
+
+function shuffle(a){
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+function show(id){["start","game","end"].forEach(s=>$(s).hidden = s!==id);}
+
+function startGame(){
+  qs = shuffle(QUESTIONS.slice());
+  index = score = mistakes = tips = 0;
+  timeLeft = TOTAL_SECONDS;
+  show("game");
+  showQuestion();
+  updateTimer();
+  clearInterval(timerId);
+  timerId = setInterval(()=>{ timeLeft--; updateTimer(); if(timeLeft<=0) endGame(false); },1000);
+}
+
+function updateTimer(){
+  const t = Math.max(timeLeft,0);
+  const m = String(Math.floor(t/60)).padStart(2,"0");
+  const s = String(t%60).padStart(2,"0");
+  $("timer").textContent = "⏱ " + m + ":" + s;
+  $("timer").classList.toggle("low", t<=300);
+}
+
+function showQuestion(){
+  const [subject,q,opts,correct,tip] = qs[index];
+  locked = false;
+  $("progress").textContent = "Spørsmål " + (index+1) + " av " + qs.length + "  |  Poeng: " + score;
+  $("fill").style.width = (index/qs.length*100) + "%";
+  $("subject").textContent = subject;
+  $("subject").style.background = COLORS[subject];
+  $("fill").style.background = COLORS[subject];
+  $("question").textContent = q;
+  $("feedback").textContent = "";
+  $("tiptext").hidden = true;
+  $("tipbtn").hidden = !tip;
+
+  const box = $("options");
+  box.innerHTML = "";
+  shuffle(opts.map((text,i)=>({text, ok:i===correct}))).forEach(o=>{
+    const b = document.createElement("button");
+    b.textContent = o.text;
+    b.onclick = () => answer(b, o.ok);
+    box.appendChild(b);
+  });
+}
+
+function answer(btn, ok){
+  if(locked) return;
+  if(ok){
+    locked = true; score++;
+    btn.classList.add("right");
+    $("feedback").textContent = "✅ Riktig!";
+    $("feedback").style.color = "var(--natur)";
+    setTimeout(()=>{ index++; index>=qs.length ? endGame(true) : showQuestion(); },700);
+  } else {
+    mistakes++;
+    btn.classList.add("wrong"); btn.disabled = true;
+    $("feedback").textContent = "❌ Feil, prøv igjen!";
+    $("feedback").style.color = "var(--norsk)";
+  }
+}
+
+function giveTip(){
+  const tip = qs[index][4];
+  if(!tip) return;
+  if(timeLeft <= TIP_PENALTY){ alert("Du har ikke nok tid igjen til et tips."); return; }
+  if(!confirm("Et tips koster 1 minutt av tiden din. Vil du ha det?")) return;
+  timeLeft -= TIP_PENALTY; tips++;
+  updateTimer();
+  $("tiptext").textContent = "💡 " + tip;
+  $("tiptext").hidden = false;
+}
+
+function endGame(finished){
+  clearInterval(timerId);
+  const used = TOTAL_SECONDS - Math.max(timeLeft,0);
+  $("endtitle").textContent = finished ? "🎉 Bra jobba! Du er ferdig!" : "⏰ Tiden er ute!";
+  $("endstats").innerHTML =
+    "Riktige svar: <b>" + score + " av " + qs.length + "</b><br>" +
+    "Feil forsøk: <b>" + mistakes + "</b><br>" +
+    "Tips brukt: <b>" + tips + "</b><br>" +
+    "Tid brukt: <b>" + Math.floor(used/60) + " min " + (used%60) + " sek</b>";
+  show("end");
+}
+
+$("startbtn").onclick = startGame;
+$("again").onclick = startGame;
+$("tipbtn").onclick = giveTip;
+</script>
+</body>
+</html>
